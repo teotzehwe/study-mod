@@ -37,6 +37,8 @@ type Seen = { opened: number; closed: number; toasts: string[]; downloads: strin
 
 // The Drive connector as a local session names it, unlike the cloud's.
 const LOCAL_DRIVE = 'claude_ai_Google_Drive'
+// As the desktop app's sessions name it: by the connector's id alone.
+const DESKTOP_DRIVE = '0f3c2a9e-5b1d-4c7a-9e2f-6d8b1a4c3e70'
 
 function world(on: On, surfaces: readonly RenderSurface[] = ['desktop'], drive: string | null = LOCAL_DRIVE) {
   const seen: Seen = { opened: 0, closed: 0, toasts: [], downloads: [], renders: [] }
@@ -47,7 +49,14 @@ function world(on: On, surfaces: readonly RenderSurface[] = ['desktop'], drive: 
   on('tool.list', () => ({
     value: [
       { name: 'Read', description: 'Reads a file.', mcp: false },
-      ...(drive === null ? [] : [{ name: `mcp__${drive}__search_files`, description: 'Search Drive.', mcp: true }]),
+      // Another server with a search_files of its own, listed first: not Drive.
+      { name: 'mcp__notes_app__search_files', description: 'Search notes.', mcp: true },
+      ...(drive === null
+        ? []
+        : [
+            { name: `mcp__${drive}__search_files`, description: 'Search Drive.', mcp: true },
+            { name: `mcp__${drive}__download_file_content`, description: 'Download a Drive file.', mcp: true },
+          ]),
     ],
   }))
   on('mcp.call', (_$, e) => {
@@ -217,5 +226,18 @@ test('with no Drive connector, the pane says how to connect one', async ($, on) 
   await clock.settle()
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /not connected in this session.*Settings → Connectors/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a desktop session names Drive by its id alone: the notes still open', async ($, on) => {
+  const { seen, clock } = world(on, ['desktop'], DESKTOP_DRIVE)
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ key: 'entry:phys' })).toBeDefined()
+  await ui.press({ key: 'entry:phys' })
+  await ui.press({ key: 'entry:notes' })
+  expect(seen.downloads).toEqual(['notes'])
   await ui.unmount()
 })

@@ -6,15 +6,19 @@ import type { Entry } from '../types'
 // session, and as /mcp lists it in a local one.
 export const DRIVE_SERVERS = ['Google_Drive', 'claude.ai Google Drive']
 
-// The server whose tools include Drive's search_files, from the session's
-// tool names (`mcp__<server>__<tool>`), in the spelling $.mcp.call accepts.
+// The server that has both of Drive's tools the mod calls, from the
+// session's tool names (`mcp__<server>__<tool>`), in the spelling $.mcp.call
+// accepts. Told by its tools, not its name: the desktop app names a claude.ai
+// connector by its id alone. One that names itself Drive wins a tie.
 export function driveServerIn(toolNames: readonly string[]): string | undefined {
+  const names = new Set(toolNames)
+  const servers: string[] = []
   for (const name of toolNames) {
     const server = /^mcp__(.+)__search_files$/.exec(name)?.[1]
-    if (server !== undefined && /drive/i.test(server)) return server
+    if (server !== undefined && names.has(`mcp__${server}__download_file_content`)) servers.push(server)
   }
 
-  return undefined
+  return servers.find(server => /drive/i.test(server)) ?? servers[0]
 }
 
 const FOLDER = 'application/vnd.google-apps.folder'
