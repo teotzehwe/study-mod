@@ -71,6 +71,25 @@ async function fetchPdf($: EngineInterface, entry: Entry): Promise<string> {
 
 // Pages, drawn by poppler's pdfinfo and pdftoppm on the machine Claude runs on.
 
+// An app started from the Dock often lacks Homebrew's folders on its PATH,
+// so poppler's tools are looked for there before the bare name.
+const BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']
+const found = new Map<string, string>()
+
+async function bin($: EngineInterface, name: string): Promise<string> {
+  const known = found.get(name)
+  if (known !== undefined) return known
+  for (const dir of BIN_DIRS) {
+    if (await $.fs.exists(`${dir}/${name}`)) {
+      found.set(name, `${dir}/${name}`)
+
+      return `${dir}/${name}`
+    }
+  }
+
+  return name
+}
+
 async function run($: EngineInterface, argv: string[], stdin?: string): Promise<string> {
   const out = await $.process.run(argv, { timeoutMs: 120_000, ...(stdin === undefined ? {} : { stdin }) })
   if (out.exitCode !== 0) {
@@ -98,7 +117,7 @@ async function renderPart(
   if (want.svg) {
     for (const [pixels, quality] of JPEG_TRIES) {
       const { args, height } = geometry(target, pixels)
-      await run($, ['pdftoppm', ...args, '-jpeg', '-jpegopt', `quality=${quality}`, '-singlefile', path, out])
+      await run($, [await bin($, 'pdftoppm'), ...args, '-jpeg', '-jpegopt', `quality=${quality}`, '-singlefile', path, out])
       const { base64 } = await $.fs.read(`${out}.jpg`, { as: 'bytes' })
       if (base64.length <= SVG_ROOM) {
         Object.assign(picture, { svg: svgOf(base64, pixels, height), width: pixels, height })
@@ -108,7 +127,7 @@ async function renderPart(
   }
   if (want.png) {
     const { args, height } = geometry(target, PNG_WIDTH)
-    await run($, ['pdftoppm', ...args, '-png', '-singlefile', path, out])
+    await run($, [await bin($, 'pdftoppm'), ...args, '-png', '-singlefile', path, out])
     Object.assign(picture, { png: `${out}.png`, width: PNG_WIDTH, height })
   }
 
@@ -165,7 +184,7 @@ async function openDoc($: EngineInterface, entry: Entry, path: Folder[]): Promis
   await update($, shown, () => null)
   await track($, `Downloading ${entry.title}…`, async ticket => {
     const file = await fetchPdf($, entry)
-    const parts = parseParts(await run($, ['pdfinfo', '-f', '1', '-l', '9999', file]))
+    const parts = parseParts(await run($, [await bin($, 'pdfinfo'), '-f', '1', '-l', '9999', file]))
     if (parts.length === 0) throw new Error('the PDF has no pages')
     if (ticket !== latest) return
 
