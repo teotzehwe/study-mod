@@ -1,0 +1,13 @@
+{
+  "name": "study-mod",
+  "description": "study-mode: flashcards while Claude Code works.",
+  "owner": {
+    "name": "Ashton Teo"
+  },
+  "plugins": [
+    {
+      "name": "study-mode",
+      "source": "./"
+    }
+  ]
+}
