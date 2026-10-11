@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Doc, Entry, Folder, Part, Shown } from '../types'
 import type { DriveFile, SearchPage } from './drive'
-import { childrenQuery, downloadArgs, DRIVE_SERVERS, folderQuery, parseResult, searchArgs, toEntries } from './drive'
+import { childrenQuery, downloadArgs, DRIVE_SERVERS, driveServerIn, folderQuery, parseResult, searchArgs, toEntries } from './drive'
 import { geometry, isPractice, JPEG_TRIES, parseParts, PNG_WIDTH, SVG_ROOM, svgOf } from './pages'
 
 const PANE = 'study'
@@ -21,16 +21,34 @@ const covered = atom({ plugin: 'study-mode', key: 'covered' } as const, 0)
 
 type LastOpened = { entry: Entry; trail: Folder[] }
 
-// Google Drive, through the session's own connector.
+// Google Drive, through the session's own connector, whatever this machine
+// calls it: found among the session's tools, the usual names as a fallback.
+
+let driveServer: string | undefined
+
+async function findDriveServer($: EngineInterface): Promise<string | undefined> {
+  if (driveServer !== undefined) return driveServer
+  driveServer = driveServerIn((await $.tool.list()).map(tool => tool.name))
+
+  return driveServer
+}
 
 async function callDrive($: EngineInterface, tool: string, args: Record<string, unknown>): Promise<unknown> {
-  let failure: unknown = new Error('Google Drive is not connected')
-  for (const server of DRIVE_SERVERS) {
+  const found = await findDriveServer($).catch(() => undefined)
+  const servers = found === undefined ? DRIVE_SERVERS : [found, ...DRIVE_SERVERS.filter(name => name !== found)]
+  let failure: unknown
+  for (const server of servers) {
     try {
       return parseResult(tool, await $.mcp.call(server, tool, args))
     } catch (error) {
-      failure = error
+      failure = failure ?? error
     }
+  }
+  if (found === undefined) {
+    const reason = failure instanceof Error ? ` (${failure.message})` : ''
+    throw new Error(
+      `Google Drive is not connected in this session. Connect it at claude.ai → Settings → Connectors, then start a new session${reason}`,
+    )
   }
   throw failure
 }

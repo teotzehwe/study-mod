@@ -35,13 +35,23 @@ const PDFINFO: Record<string, string> = {
 
 type Seen = { opened: number; closed: number; toasts: string[]; downloads: string[]; renders: string[][] }
 
-function world(on: On, surfaces: readonly RenderSurface[] = ['desktop']) {
+// The Drive connector as a local session names it, unlike the cloud's.
+const LOCAL_DRIVE = 'claude_ai_Google_Drive'
+
+function world(on: On, surfaces: readonly RenderSurface[] = ['desktop'], drive: string | null = LOCAL_DRIVE) {
   const seen: Seen = { opened: 0, closed: 0, toasts: [], downloads: [], renders: [] }
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.store(on)
   mock.env(on, { HOME: '/home/ashton' })
 
+  on('tool.list', () => ({
+    value: [
+      { name: 'Read', description: 'Reads a file.', mcp: false },
+      ...(drive === null ? [] : [{ name: `mcp__${drive}__search_files`, description: 'Search Drive.', mcp: true }]),
+    ],
+  }))
   on('mcp.call', (_$, e) => {
+    if (e.server !== drive) return { deny: `no connected MCP tool "${e.tool}" on a server named "${e.server}"` }
     if (e.tool === 'search_files') {
       const query = String(e.args.query)
       const parent = /parentId = '([^']+)'/.exec(query)?.[1]
@@ -198,4 +208,14 @@ test('/study while Claude works opens the notes on request', async ($, on) => {
   await $.turn.complete(TURN_DONE)
   const status = await $.command.run({ ...STUDY, args: '' })
   expect(status.text).toContain('Study mode: on')
+})
+
+test('with no Drive connector, the pane says how to connect one', async ($, on) => {
+  const { clock } = world(on, ['desktop'], null)
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /not connected in this session.*Settings → Connectors/ })).toBeDefined()
+  await ui.unmount()
 })

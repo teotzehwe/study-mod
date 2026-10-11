@@ -6,6 +6,17 @@ import type { Entry } from '../types'
 // session, and as /mcp lists it in a local one.
 export const DRIVE_SERVERS = ['Google_Drive', 'claude.ai Google Drive']
 
+// The server whose tools include Drive's search_files, from the session's
+// tool names (`mcp__<server>__<tool>`), in the spelling $.mcp.call accepts.
+export function driveServerIn(toolNames: readonly string[]): string | undefined {
+  for (const name of toolNames) {
+    const server = /^mcp__(.+)__search_files$/.exec(name)?.[1]
+    if (server !== undefined && /drive/i.test(server)) return server
+  }
+
+  return undefined
+}
+
 const FOLDER = 'application/vnd.google-apps.folder'
 const PDF = 'application/pdf'
 const EXPORTS_AS_PDF = ['application/vnd.google-apps.document', 'application/vnd.google-apps.presentation']
