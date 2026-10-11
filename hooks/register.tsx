@@ -247,7 +247,7 @@ export const register: Register = on => {
       await update($, covered, () => 0)
       await update($, isWorking, () => true)
       const opened = await $.ui.open({ id: PANE, title: 'Study', focus: true })
-      if (!opened.isPlaced) $.ui.toast(`study-mode: pane waiting (${opened.reason})`)
+      if (!opened.isPlaced) $.ui.toast(`Your notes are ready: type /study to show them. (${opened.reason})`)
       void resume($).catch(() => undefined)
     }
 
@@ -307,6 +307,12 @@ export const register: Register = on => {
       await update($, view, () => 'browse')
 
       return { text: `Study folder set to ${folder.title}. It opens next time Claude works.` }
+    }
+
+    // Typed by the person, the open is asked for, so it is drawn at any width.
+    if (verb === '' && (await read($, isWorking))) {
+      const opened = await $.ui.open({ id: PANE, title: 'Study', focus: true })
+      if (opened.isPlaced) return { text: 'Notes opened.' }
     }
 
     const isOn = (await $.store.get('enabled')) !== false

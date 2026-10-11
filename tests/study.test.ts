@@ -185,3 +185,17 @@ test('a subagent finishing does not close the notes; /study off keeps them shut'
   await clock.settle()
   expect(seen.opened).toBe(1)
 })
+
+test('/study while Claude works opens the notes on request', async ($, on) => {
+  const { seen, clock } = world(on)
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.settle()
+  const shown = await $.command.run({ ...STUDY, args: '' })
+  expect(shown.text).toBe('Notes opened.')
+  expect(seen.opened).toBe(2)
+
+  await $.turn.complete(TURN_DONE)
+  const status = await $.command.run({ ...STUDY, args: '' })
+  expect(status.text).toContain('Study mode: on')
+})

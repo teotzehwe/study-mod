@@ -21,9 +21,17 @@ Keys while the pane has focus: `n` next, `p` previous, `f` files, `u` up a folde
 
 | Command | Does |
 | --- | --- |
-| `/study` | Status: on/off, Drive folder, what you're reading |
+| `/study` | While Claude works: show the notes. Otherwise: status |
 | `/study off` / `/study on` | Turn the mod off or on (works mid-turn) |
 | `/study folder <name>` | Use another Drive folder as the top level |
+
+## Where it works
+
+The pane needs a Claude Code that draws on your own screen:
+
+- **Claude desktop app, Code tab, local session**: pages show as images. Best option.
+- **Terminal** (`claude`): pages show as images in kitty or Ghostty; other terminals show the file and page with a Drive link. Below 144 columns the pane waits until you type `/study`.
+- **Not in cloud sessions** (claude.ai/code, or the app viewing a cloud session): those draw no mod panes, so the mod runs but nothing appears.
 
 ## Needs
 
