@@ -1,7 +1,9 @@
 {
   "name": "study-mode",
-  "version": "0.1.0",
-  "description": "Flashcards in a side pane while Claude works; the pane closes when Claude is done.",
-  "author": { "name": "Ashton Teo" },
+  "version": "0.2.0",
+  "description": "Your GoodNotes / Google Drive notes in a side pane while Claude works; it closes when Claude is done.",
+  "author": {
+    "name": "Ashton Teo"
+  },
   "types": "./types/index.d.ts"
 }

@@ -1,13 +1,35 @@
 # study-mode
 
-A Claude Code mod: flashcards open in a side pane the moment Claude starts working, and close the moment it finishes. Study while it codes; review its changes when it's done; send it off again.
+A Claude Code mod: while Claude works, a side pane opens your own notes from Google Drive (GoodNotes backups, school PDFs, Google Docs). You read them, or work the practice questions out on paper. When Claude finishes, the pane closes and you go check its changes.
 
 ```
-you prompt ──► Claude works ──► pane opens: flashcards (can't close it by hand)
+you prompt ──► Claude works ──► pane opens your notes at your bookmark (can't close it by hand)
                     │
                     ▼
-            Claude finishes ──► pane closes, toast: "3 cards, 2 got. Go check the changes."
+            Claude finishes ──► pane closes: "3 pages of 07 Oscillations Notes, bookmarked."
 ```
+
+## What you see
+
+- **Files**: your Drive folder (default `GoodNotes`), folders first. Pick a subject, a topic, then a PDF.
+- **The page itself**, drawn as an image. Landscape 2-up handouts are split into left and right halves so they're readable in a sidebar.
+- **Notes** (any file not named like practice): "Read it, then look away and recall the key points." `Next ▶`.
+- **Practice** (titles with PTQ, PLQ, tutorial, quiz, worksheet, paper, TYS, exam…): "Work each question out on paper before you move on." `Wrote it ▶`.
+- Your place in every file is bookmarked. The next time Claude works, the last file reopens at that page.
+
+Keys while the pane has focus: `n` next, `p` previous, `f` files, `u` up a folder. `Esc` hands the keyboard back to the prompt; the pane stays until Claude is done.
+
+| Command | Does |
+| --- | --- |
+| `/study` | Status: on/off, Drive folder, what you're reading |
+| `/study off` / `/study on` | Turn the mod off or on (works mid-turn) |
+| `/study folder <name>` | Use another Drive folder as the top level |
+
+## Needs
+
+1. **Google Drive connected to Claude** (claude.ai → Settings → Connectors). The mod reads Drive through it.
+2. **GoodNotes auto-backup to Google Drive as PDF** (GoodNotes → Settings → Auto-Backup), which creates the `GoodNotes/<Subject>/…` folders.
+3. **poppler** on the machine Claude Code runs on, to draw pages: `brew install poppler` (macOS), `apt install poppler-utils` (Linux). Cloud sessions already have it.
 
 ## Install
 
@@ -19,34 +41,6 @@ In a Claude Code terminal session:
 
 Answer `y` to add the marketplace, then pick the user scope (Enter).
 
-## Use
-
-- Send Claude a prompt. The **Study** pane opens with a card.
-- `r` reveal → `y` got it / `n` missed. Enter presses the highlighted button.
-- `Esc` hands the keyboard back to the prompt; the pane stays until Claude is done.
-
-| Command | Does |
-| --- | --- |
-| `/study` | Status: decks, cards due, your hit rate |
-| `/study off` / `/study on` | Turn the mod off or on (works mid-turn) |
-| `/study phys` | Only cards from the deck whose name contains "phys" |
-| `/study all` | Back to every deck |
-
-Cards are scheduled with Leitner boxes: a miss comes back in 2 minutes; each hit pushes the card out further (1, 3, 7, 21 days). Progress is kept across sessions.
-
-## Your own decks
-
-Drop Markdown files in `~/.claude/study/` (every project) or `<project>/.claude/study/` (that project):
-
-```markdown
-# H1 General Paper
-
-Q: What makes an argument "balanced"?
-A: It weighs the strongest opposing view, then evaluates it with evidence.
-```
-
-A line that doesn't start with `Q:` or `A:` continues the one above. See `examples/h1-gp.md`. Starter decks for H2 Physics, Chemistry, Mathematics and Economics are built in (`hooks/decks.ts`).
-
 ## Develop
 
 ```
@@ -54,3 +48,5 @@ claude plugin validate .
 claude plugin test .
 claude --plugin-dir .
 ```
+
+`hooks/register.tsx` holds every hook and engine call; `hooks/drive.ts` (Drive queries and results) and `hooks/pages.ts` (page layout and rendering arguments) are pure helpers.
