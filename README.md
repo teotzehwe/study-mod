@@ -38,6 +38,14 @@ The pane needs a Claude Code that draws on your own screen:
 1. **Google Drive connected to Claude** (claude.ai → Settings → Connectors). The mod reads Drive through it.
 2. **GoodNotes auto-backup to Google Drive as PDF** (GoodNotes → Settings → Auto-Backup), which creates the `GoodNotes/<Subject>/…` folders.
 3. **poppler** on the machine Claude Code runs on, to draw pages: `brew install poppler` (macOS), `apt install poppler-utils` (Linux). Cloud sessions already have it.
+4. **rclone, for notes over 10 MB.** Drive's connector sends files up to 10 MB, and GoodNotes notes are often bigger. With rclone signed in to your Drive (read-only), the mod downloads any file by its Drive id instead:
+
+   ```
+   brew install rclone
+   rclone config create gdrive drive scope=drive.readonly
+   ```
+
+   The second command opens your browser to sign in. Without rclone, files under 10 MB still open through the connector, and bigger ones say how to set it up. rclone's shared sign-in is being retired during 2026; if downloads start failing with a sign-in error, [make your own client id](https://rclone.org/drive/#making-your-own-client-id), add it with `rclone config update gdrive client_id=<id> client_secret=<secret>`, then sign in again with `rclone config reconnect gdrive:`.
 
 ## Install
 

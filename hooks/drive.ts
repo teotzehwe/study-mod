@@ -80,3 +80,29 @@ export function toEntries(files: readonly DriveFile[]): Entry[] {
 export function downloadArgs(entry: Entry): Record<string, unknown> {
   return EXPORTS_AS_PDF.includes(entry.mimeType) ? { fileId: entry.id, exportMimeType: PDF } : { fileId: entry.id }
 }
+
+// The connector sends files up to 10 MB; past that it answers "File too
+// large for download, over limit of 10 MB".
+export function isTooLarge(error: unknown): boolean {
+  return error instanceof Error && /too large|over limit/i.test(error.message)
+}
+
+export const RCLONE_SETUP = 'brew install rclone, then rclone config create gdrive drive scope=drive.readonly'
+
+// rclone downloads a file of any size by its Drive id, with the person's own
+// sign-in. The first Drive remote `rclone listremotes --long` lists
+// ("gdrive: drive"), as rclone spells it, colon included.
+export function rcloneRemoteIn(listing: string): string | undefined {
+  for (const line of listing.split('\n')) {
+    const match = /^(\S+:)\s+drive\s*$/.exec(line.trim())
+    if (match?.[1] !== undefined) return match[1]
+  }
+
+  return undefined
+}
+
+export function copyidArgs(remote: string, entry: Entry, dest: string): string[] {
+  const exports = EXPORTS_AS_PDF.includes(entry.mimeType) ? ['--drive-export-formats', 'pdf'] : []
+
+  return ['backend', 'copyid', remote, entry.id, dest, ...exports]
+}

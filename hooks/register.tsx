@@ -3,7 +3,20 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Doc, Entry, Folder, Part, Shown } from '../types'
 import type { DriveFile, SearchPage } from './drive'
-import { childrenQuery, downloadArgs, DRIVE_SERVERS, driveServerIn, folderQuery, parseResult, searchArgs, toEntries } from './drive'
+import {
+  childrenQuery,
+  copyidArgs,
+  downloadArgs,
+  DRIVE_SERVERS,
+  driveServerIn,
+  folderQuery,
+  isTooLarge,
+  parseResult,
+  RCLONE_SETUP,
+  rcloneRemoteIn,
+  searchArgs,
+  toEntries,
+} from './drive'
 import { geometry, isPractice, JPEG_TRIES, parseParts, PNG_WIDTH, SVG_ROOM, svgOf } from './pages'
 
 const PANE = 'study'
@@ -73,18 +86,61 @@ async function findFolder($: EngineInterface, name: string): Promise<Folder | nu
   return first === undefined ? null : { id: first.id, title: first.title }
 }
 
-// The PDF on disk, cached by file id and Drive's modified time.
+// The PDF on disk, cached by file id and Drive's modified time. Written to a
+// .part file and moved into place, so a download cut short is never cached.
+// rclone first, when the person has set it up: it fetches any size straight
+// to disk. Else the connector, which sends files up to 10 MB.
 async function fetchPdf($: EngineInterface, entry: Entry): Promise<string> {
-  const file = `${await cacheDir($)}/${entry.id}-${entry.modifiedTime.replace(/\W/g, '')}.pdf`
+  const dir = await cacheDir($)
+  const file = `${dir}/${entry.id}-${entry.modifiedTime.replace(/\W/g, '')}.pdf`
   if (await $.fs.exists(file)) return file
+  const part = `${file}.part`
+  await run($, ['mkdir', '-p', dir])
 
-  const out = (await callDrive($, 'download_file_content', downloadArgs(entry))) as { content?: string }
+  let rcloneFailure = ''
+  const rclone = await findRclone($)
+  if (rclone !== undefined) {
+    try {
+      await run($, [rclone.bin, ...copyidArgs(rclone.remote, entry, part)], undefined, 600_000)
+      await run($, ['mv', part, file])
+
+      return file
+    } catch (error) {
+      rcloneFailure = ` (rclone: ${error instanceof Error ? error.message : String(error)})`
+    }
+  }
+
+  let out: { content?: string }
+  try {
+    out = (await callDrive($, 'download_file_content', downloadArgs(entry))) as { content?: string }
+  } catch (error) {
+    if (!isTooLarge(error)) throw error
+    throw new Error(
+      rclone === undefined
+        ? `it is over the 10 MB limit of Drive's connector. To open big files, set up rclone: ${RCLONE_SETUP}`
+        : `it is over the 10 MB limit of Drive's connector, and rclone could not fetch it${rcloneFailure}`,
+    )
+  }
   if (typeof out.content !== 'string' || out.content === '') {
     throw new Error(`Drive sent no content for ${entry.title}`)
   }
-  await run($, ['sh', '-c', 'mkdir -p "$(dirname "$0")" && base64 --decode > "$0"', file], out.content)
+  await run($, ['sh', '-c', 'base64 --decode > "$0"', part], out.content)
+  await run($, ['mv', part, file])
 
   return file
+}
+
+// rclone and its Drive remote, looked for on each download so one set up
+// mid-session is used at once; none when either is missing.
+async function findRclone($: EngineInterface): Promise<{ bin: string; remote: string } | undefined> {
+  try {
+    const path = await bin($, 'rclone')
+    const remote = rcloneRemoteIn(await run($, [path, 'listremotes', '--long']))
+
+    return remote === undefined ? undefined : { bin: path, remote }
+  } catch {
+    return undefined
+  }
 }
 
 // Pages, drawn by poppler's pdfinfo and pdftoppm on the machine Claude runs on.
@@ -108,8 +164,8 @@ async function bin($: EngineInterface, name: string): Promise<string> {
   return name
 }
 
-async function run($: EngineInterface, argv: string[], stdin?: string): Promise<string> {
-  const out = await $.process.run(argv, { timeoutMs: 120_000, ...(stdin === undefined ? {} : { stdin }) })
+async function run($: EngineInterface, argv: string[], stdin?: string, timeoutMs = 120_000): Promise<string> {
+  const out = await $.process.run(argv, { timeoutMs, ...(stdin === undefined ? {} : { stdin }) })
   if (out.exitCode !== 0) {
     const reason = out.stderr.trim().split('\n').at(-1) ?? ''
     throw new Error(`${argv[0]} failed${reason === '' ? '' : `: ${reason}`}`)
