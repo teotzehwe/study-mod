@@ -1,6 +1,6 @@
 {
   "name": "study-mode",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Your GoodNotes / Google Drive notes in a side pane while Claude works; it closes when Claude is done.",
   "author": {
     "name": "Ashton Teo"

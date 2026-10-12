@@ -17,7 +17,9 @@ import {
   searchArgs,
   toEntries,
 } from './drive'
-import { geometry, isPractice, JPEG_TRIES, parseParts, PNG_WIDTH, SVG_ROOM, svgOf } from './pages'
+import type { Chip } from './look'
+import { callout, groundFor, masthead, pageCard } from './look'
+import { geometry, isPractice, JPEG_TRIES, parseParts, PNG_WIDTH, SVG_ROOM } from './pages'
 
 const PANE = 'study'
 const DEFAULT_ROOT = 'GoodNotes'
@@ -198,7 +200,7 @@ async function renderPart(
       await run($, [await bin($, 'pdftoppm'), ...args, '-jpeg', '-jpegopt', `quality=${quality}`, '-singlefile', path, out])
       const { base64 } = await $.fs.read(`${out}.jpg`, { as: 'bytes' })
       if (base64.length <= SVG_ROOM) {
-        Object.assign(picture, { svg: svgOf(base64, pixels, height), width: pixels, height })
+        Object.assign(picture, { svg: pageCard(base64, pixels, height), width: pixels, height })
         break
       }
     }
@@ -445,7 +447,35 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Link, Text } = $.ui.resolve(e)
+    // The design system draws as SVG where the surface draws pictures; the
+    // terminal gets the same parts as text.
+    const Svg = e.surface === 'terminal' ? undefined : $.ui.resolve(e).Svg
     const note = await read($, status)
+    const noteLine =
+      note === null ? null : note.includes(' failed') ? (
+        <Text color="error">{note}</Text>
+      ) : (
+        <Text dimColor>{note}</Text>
+      )
+
+    const header = (eyebrow: string[], title: string, chips: Chip[], subject: Folder | undefined) => {
+      if (Svg === undefined) {
+        return (
+          <Box flexDirection="column">
+            <Text bold color={LABEL}>
+              {eyebrow.join(' · ').toUpperCase()}
+            </Text>
+            <Text bold wrap="truncate-end">
+              {title}
+            </Text>
+            {chips.length > 0 && <Text dimColor>{chips.map(chip => chip.text).join(' · ')}</Text>}
+          </Box>
+        )
+      }
+      const drawn = masthead({ ground: groundFor(subject?.id), eyebrow, title, chips })
+
+      return <Svg source={drawn.source} alt={drawn.alt} />
+    }
 
     if (!(await read($, isWorking))) {
       return <Text dimColor>Claude is done. Back to the code.</Text>
@@ -454,27 +484,46 @@ export const register: Register = on => {
     if ((await read($, view)) === 'browse') {
       const path = await read($, trail)
       const list = await read($, entries)
+      const folders = list.filter(entry => entry.isFolder).length
+      const files = list.length - folders
+      const chips = [plural(folders, 'folder'), plural(files, 'file')].filter((_, i) => [folders, files][i] !== 0)
 
       return (
-        <Box flexDirection="column">
-          <Text bold>{path.length === 0 ? 'Google Drive' : path.map(folder => folder.title).join(' / ')}</Text>
-          {note !== null && <Text dimColor>{note}</Text>}
-          {path.length > 1 && (
-            <Button key="up" label="◀ Up" hotkey="u" plain onPress={() => browse($, path.slice(0, -1))} />
+        <Box flexDirection="column" gap={1}>
+          {header(
+            path.length > 1 ? path.slice(0, -1).map(folder => folder.title) : ['Study', 'Google Drive'],
+            path.at(-1)?.title ?? 'Google Drive',
+            chips.map(text => ({ text })),
+            path[1],
           )}
-          {list.map(entry => (
-            <Button
-              key={`entry:${entry.id}`}
-              plain
-              onPress={() =>
-                entry.isFolder
-                  ? browse($, [...path, { id: entry.id, title: entry.title }])
-                  : openDoc($, entry, path)
-              }
-            >
-              {entry.isFolder ? `▸ ${entry.title}` : `  ${entry.title}`}
-            </Button>
-          ))}
+          {noteLine}
+          {path.length > 1 && (
+            <Button key="up" label="Up a folder" hotkey="u" plain onPress={() => browse($, path.slice(0, -1))} />
+          )}
+          {[true, false].map(isFolder => {
+            const group = list.filter(entry => entry.isFolder === isFolder)
+            if (group.length === 0) return null
+
+            return (
+              <Box key={isFolder ? 'folders' : 'files'} flexDirection="column">
+                <Text bold color={LABEL}>
+                  {isFolder ? 'FOLDERS' : 'FILES'}
+                </Text>
+                {group.map(entry => (
+                  <Button
+                    key={`entry:${entry.id}`}
+                    label={entry.title}
+                    plain
+                    onPress={() =>
+                      entry.isFolder
+                        ? browse($, [...path, { id: entry.id, title: entry.title }])
+                        : openDoc($, entry, path)
+                    }
+                  />
+                ))}
+              </Box>
+            )
+          })}
           {list.length === 0 && note === null && <Text dimColor>Nothing here.</Text>}
         </Box>
       )
@@ -487,13 +536,14 @@ export const register: Register = on => {
     const at = current?.parts[index]
 
     if (current === null || at === undefined) {
-      return <Text dimColor>{note ?? 'Loading…'}</Text>
+      return noteLine ?? <Text dimColor>Loading…</Text>
     }
 
+    const path = await read($, trail)
     const lastPage = current.parts.at(-1)?.page ?? at.page
-    const half = at.half === undefined ? '' : ` (${at.half} half)`
+    const half = at.half === undefined ? '' : ` · ${at.half} half`
     const alt = `${current.title}, page ${at.page}${half}`
-    let page = <Text dimColor>{note ?? 'Loading…'}</Text>
+    let page = noteLine ?? <Text dimColor>Loading…</Text>
     if (picture !== null && e.surface === 'terminal' && picture.png !== undefined) {
       const { Image } = $.ui.resolve(e)
       const columns = Math.max(1, Math.min(255, e.props.bodyColumns))
@@ -507,34 +557,46 @@ export const register: Register = on => {
           alt={alt}
         />
       )
-    } else if (picture !== null && e.surface !== 'terminal' && picture.svg !== undefined) {
-      const { Svg } = $.ui.resolve(e)
+    } else if (picture !== null && Svg !== undefined && picture.svg !== undefined) {
       page = <Svg source={picture.svg} alt={alt} />
+    }
+
+    // Notes ask for recall on the ground's well; practice gets the one yellow
+    // box, since working on paper is the thing to do first.
+    const lead = current.isPractice ? 'On paper.' : 'Recall.'
+    const ask = current.isPractice
+      ? 'Work each question out before you move on.'
+      : 'Read it, then look away and recall the key points.'
+    const subject = path[1]
+    let prompt = (
+      <Text>
+        <Text bold color={current.isPractice ? 'warning' : LABEL}>
+          {lead}
+        </Text>{' '}
+        {ask}
+      </Text>
+    )
+    if (Svg !== undefined) {
+      const drawn = callout({ ground: groundFor(subject?.id), lead, text: ask, isPriority: current.isPractice })
+      prompt = <Svg source={drawn.source} alt={drawn.alt} />
     }
 
     return (
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="column">
-          <Text bold wrap="truncate-end">
-            {current.title}
-          </Text>
-          <Text dimColor>
-            Page {at.page} of {lastPage}
-            {half} · {count} covered this wait
-          </Text>
-          <Text color={current.isPractice ? 'yellow' : 'cyan'}>
-            {current.isPractice
-              ? 'Practice: work each question out on paper before you move on.'
-              : 'Read it, then look away and recall the key points.'}
-          </Text>
-        </Box>
+        {header(
+          [...(path.length > 1 ? path.slice(1) : path).map(folder => folder.title), current.isPractice ? 'Practice' : 'Notes'],
+          current.title,
+          [{ text: `Page ${at.page} of ${lastPage}${half}` }, { text: `${count} covered this wait` }],
+          subject,
+        )}
+        {prompt}
         {page}
-        {picture !== null && note !== null && <Text dimColor>{note}</Text>}
+        {picture !== null && noteLine}
         <Box flexDirection="row" gap={2}>
-          <Button key="prev" label="◀ Prev" hotkey="p" onPress={() => step($, -1)} />
+          <Button key="prev" label="Previous" hotkey="p" onPress={() => step($, -1)} />
           <Button
             key="next"
-            label={current.isPractice ? 'Wrote it ▶' : 'Next ▶'}
+            label={current.isPractice ? 'Wrote it' : 'Next'}
             hotkey="n"
             variant="primary"
             autoFocus
@@ -546,4 +608,11 @@ export const register: Register = on => {
       </Box>
     )
   })
+}
+
+// Labels take the theme's purple, so they follow the person's theme.
+const LABEL = 'merged'
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
 }

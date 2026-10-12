@@ -13,8 +13,9 @@ you prompt ──► Claude works ──► pane opens your notes at your bookma
 
 - **Files**: your Drive folder (default `GoodNotes`), folders first. Pick a subject, a topic, then a PDF.
 - **The page itself**, drawn as an image. Landscape 2-up handouts are split into left and right halves so they're readable in a sidebar.
-- **Notes** (any file not named like practice): "Read it, then look away and recall the key points." `Next ▶`.
-- **Practice** (titles with PTQ, PLQ, tutorial, quiz, worksheet, paper, TYS, exam…): "Work each question out on paper before you move on." `Wrote it ▶`.
+- **Notes** (any file not named like practice): "Recall. Read it, then look away and recall the key points." `Next`.
+- **Practice** (titles with PTQ, PLQ, tutorial, quiz, worksheet, paper, TYS, exam…): "On paper. Work each question out before you move on." `Wrote it`.
+- **The look** is the Reports design system (Amplify's): a masthead on a pale ground with its glow, an uppercase purple eyebrow, pressed meta chips, the page as a white bordered card, a callout on the ground's well for notes and the one yellow box for practice. Each subject gets its own ground (cream, lilac, sage, peach or butter). The desktop app draws these as pictures that follow light and dark; the terminal shows the same parts as text. `hooks/look.ts` holds the tokens.
 - Your place in every file is bookmarked. The next time Claude works, even in a new session, the notes reopen where they last closed: the same file at the same page, or the folder you were browsing.
 
 Keys while the pane has focus: `n` next, `p` previous, `f` files, `u` up a folder. `Esc` hands the keyboard back to the prompt; the pane stays until Claude is done.

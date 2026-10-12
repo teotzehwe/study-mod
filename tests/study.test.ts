@@ -69,6 +69,23 @@ type World = {
   stored?: Readonly<Record<string, unknown>>
 }
 
+// What the pane shows, as one text: its Text elements, and each drawing's
+// alt text, which says what the drawing does.
+type Drawn = { findAll: (query: { type: string }) => Promise<{ text: string; props: Record<string, unknown> }[]> }
+async function shown(ui: Drawn): Promise<string> {
+  const drawings = (await ui.findAll({ type: 'Svg' })).map(svg => String(svg.props.alt))
+  const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+
+  return [...drawings, ...texts].join('\n')
+}
+
+// The one yellow box (the priority box), counted across the drawings.
+async function yellowBoxes(ui: Drawn): Promise<number> {
+  const sources = (await ui.findAll({ type: 'Svg' })).map(svg => String(svg.props.source))
+
+  return sources.join('').split('fill="#FDC323"').length - 1
+}
+
 function world(on: On, { surfaces = ['desktop'], drive = LOCAL_DRIVE, rclone = 'none', stored = {} }: World = {}) {
   const seen: Seen = { opened: 0, closed: 0, toasts: [], downloads: [], renders: [], rclone: [] }
   const clock = mock.clock(on, { now: 1_000_000 })
@@ -156,24 +173,25 @@ test('Claude starts: the GoodNotes folder opens; a PDF pages through; Claude don
   expect(seen.opened).toBe(1)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: 'GoodNotes' })).toBeDefined()
+  expect(await shown(ui)).toContain('Study · Google Drive: GoodNotes. 2 folders.')
   await ui.press({ key: 'entry:phys' })
-  expect(await ui.find({ type: 'Text', text: 'GoodNotes / H2 Physics' })).toBeDefined()
+  expect(await shown(ui)).toContain('GoodNotes: H2 Physics. 2 files.')
   expect(await ui.find({ key: 'entry:jpg' })).toBeUndefined()
   expect((await ui.findAll({ type: 'Button' })).map(button => button.text)).toEqual([
-    '◀ Up',
-    '  07 Oscillations Notes',
-    '  Oscillations PTQ 2026',
+    'Up a folder',
+    '07 Oscillations Notes',
+    'Oscillations PTQ 2026',
   ])
 
   await ui.press({ key: 'entry:notes' })
   expect(seen.downloads).toEqual(['notes'])
   expect(await ui.find({ type: 'Svg' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Page 1 of 2/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /recall the key points/ })).toBeDefined()
+  expect(await shown(ui)).toContain('H2 Physics · Notes: 07 Oscillations Notes. Page 1 of 2 · 0 covered this wait.')
+  expect(await shown(ui)).toContain('Recall. Read it, then look away and recall the key points.')
+  expect(await yellowBoxes(ui)).toBe(0)
 
   await ui.press({ key: 'next' })
-  expect(await ui.find({ type: 'Text', text: /Page 2 of 2 · 1 covered/ })).toBeDefined()
+  expect(await shown(ui)).toMatch(/Page 2 of 2 · 1 covered this wait/)
 
   await $.turn.complete(TURN_DONE)
   expect(seen.closed).toBe(1)
@@ -190,13 +208,14 @@ test('a landscape practice sheet reads in halves and asks for written work', asy
   await ui.press({ key: 'entry:phys' })
   await ui.press({ key: 'entry:ptq' })
 
-  expect(await ui.find({ type: 'Text', text: /Page 1 of 1 \(left half\)/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /on paper/ })).toBeDefined()
+  expect(await shown(ui)).toMatch(/Page 1 of 1 · left half/)
+  expect(await shown(ui)).toContain('On paper. Work each question out before you move on.')
+  expect(await yellowBoxes(ui)).toBe(1)
   expect((await ui.find({ key: 'next' }))?.text).toContain('Wrote it')
   expect(seen.renders.at(-1)).toContain('-W')
 
   await ui.press({ key: 'next' })
-  expect(await ui.find({ type: 'Text', text: /\(right half\)/ })).toBeDefined()
+  expect(await shown(ui)).toMatch(/Page 1 of 1 · right half/)
   await ui.unmount()
 })
 
@@ -215,7 +234,7 @@ test('the next wait resumes the same file at the bookmarked page', async ($, on)
   await $.turn.start({ text: 'two', turnId: 't2' })
   await clock.settle()
   const again = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await again.find({ type: 'Text', text: /Page 2 of 2 · 0 covered/ })).toBeDefined()
+  expect(await shown(again)).toMatch(/Page 2 of 2 · 0 covered this wait/)
   expect(seen.opened).toBe(2)
   await again.unmount()
 })
@@ -229,6 +248,10 @@ test('the terminal draws the page as an image from a PNG', async ($, on) => {
   await ui.press({ key: 'entry:phys' })
   await ui.press({ key: 'entry:notes' })
   expect(await ui.find({ type: 'Image' })).toBeDefined()
+  // No drawings on the terminal: the masthead and the callout as text.
+  expect(await ui.find({ type: 'Text', text: 'H2 PHYSICS · NOTES' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Page 1 of 2 · 0 covered this wait/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Recall\. Read it, then look away/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -364,7 +387,7 @@ test('a file that fails to open leaves the next wait in its folder, not the top'
   await $.turn.start({ text: 'two', turnId: 't2' })
   await clock.settle()
   const again = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await again.find({ type: 'Text', text: 'GoodNotes / H2 Chemistry' })).toBeDefined()
+  expect(await shown(again)).toContain('GoodNotes: H2 Chemistry. 1 file.')
   expect(await again.find({ key: 'entry:bonding' })).toBeDefined()
   await again.unmount()
 })
@@ -375,7 +398,7 @@ test('a new session reopens the folder the notes last closed on', async ($, on) 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.settle()
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: 'GoodNotes / H2 Physics' })).toBeDefined()
+  expect(await shown(ui)).toContain('GoodNotes: H2 Physics. 2 files.')
   expect(await ui.find({ key: 'entry:notes' })).toBeDefined()
   await ui.unmount()
 })
@@ -389,7 +412,7 @@ test('a new session reopens the file and page the notes last closed on', async (
   await clock.settle()
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(seen.downloads).toEqual(['notes'])
-  expect(await ui.find({ type: 'Text', text: /Page 2 of 2/ })).toBeDefined()
+  expect(await shown(ui)).toMatch(/Page 2 of 2/)
   await ui.unmount()
 })
 
@@ -399,6 +422,6 @@ test('a store from before 0.4.0, with only the last file, still reopens it', asy
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.settle()
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /Page 2 of 2/ })).toBeDefined()
+  expect(await shown(ui)).toMatch(/Page 2 of 2/)
   await ui.unmount()
 })

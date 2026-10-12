@@ -1,7 +1,8 @@
 import type { Part } from '../types'
 
 // An Svg's source is capped at 131,072 characters: JPEG widths and qualities
-// to try, sharpest first, until the page fits with room for the wrapper.
+// to try, sharpest first, until the page fits with room for the card around
+// it (look.ts).
 export const SVG_ROOM = 125_000
 export const JPEG_TRIES = [
   [720, 45],
@@ -55,11 +56,4 @@ export function geometry(part: Part, pixels: number): { args: string[]; height: 
   const page = String(part.page)
 
   return { args: ['-f', page, '-l', page, '-r', dpi.toFixed(3), ...crop], height }
-}
-
-export function svgOf(jpegBase64: string, width: number, height: number): string {
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">` +
-    `<image href="data:image/jpeg;base64,${jpegBase64}" width="${width}" height="${height}"/></svg>`
-  )
 }
