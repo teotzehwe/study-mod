@@ -34,6 +34,10 @@ const covered = atom({ plugin: 'study-mode', key: 'covered' } as const, 0)
 
 type LastOpened = { entry: Entry; trail: Folder[] }
 
+// Where the person is, kept across sessions: the folder they browse, or the
+// file they read (its page is in 'pages'). The notes reopen there.
+type Place = { view: 'browse'; trail: Folder[] } | ({ view: 'read' } & LastOpened)
+
 // Google Drive, through the session's own connector, whatever this machine
 // calls it: found among the session's tools, the usual names as a fallback.
 
@@ -211,9 +215,12 @@ async function renderPart(
 // Each navigation takes a ticket; work that finishes after a newer one
 // started is dropped, so a slow download never paints over a later page.
 let latest = 0
+// Whether the newest navigation's work is still running.
+let isLoading = false
 
 async function track($: EngineInterface, label: string, work: (ticket: number) => Promise<void>): Promise<void> {
   const ticket = ++latest
+  isLoading = true
   await update($, status, () => label)
   try {
     await work(ticket)
@@ -221,6 +228,8 @@ async function track($: EngineInterface, label: string, work: (ticket: number) =
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     if (ticket === latest) await update($, status, () => `${label.replace(/…$/, '')} failed: ${reason}`)
+  } finally {
+    if (ticket === latest) isLoading = false
   }
 }
 
@@ -236,6 +245,7 @@ async function browse($: EngineInterface, path: Folder[]): Promise<void> {
   await update($, view, () => 'browse')
   await update($, trail, () => path)
   await update($, entries, () => [])
+  await $.store.set('place', { view: 'browse', trail: path } satisfies Place)
   await track($, `Opening ${here.title}…`, async ticket => {
     const list = toEntries(await searchDrive($, childrenQuery(here.id)))
     if (ticket === latest) await update($, entries, () => list)
@@ -252,9 +262,12 @@ async function browseRoot($: EngineInterface): Promise<void> {
   })
 }
 
+// The place is saved once the file has opened, so one that fails to open
+// leaves the person in its folder.
 async function openDoc($: EngineInterface, entry: Entry, path: Folder[]): Promise<void> {
   await update($, view, () => 'read')
   await update($, trail, () => path)
+  await update($, doc, () => null)
   await update($, shown, () => null)
   await track($, `Downloading ${entry.title}…`, async ticket => {
     const file = await fetchPdf($, entry)
@@ -266,6 +279,7 @@ async function openDoc($: EngineInterface, entry: Entry, path: Folder[]): Promis
     const opened: Doc = { ...entry, path: file, parts, isPractice: isPractice(entry.title) }
     await update($, doc, () => opened)
     await $.store.set('last', { entry, trail: path } satisfies LastOpened)
+    await $.store.set('place', { view: 'read', entry, trail: path } satisfies Place)
     await show($, Math.min(pages[entry.id] ?? 0, parts.length - 1))
   })
 }
@@ -305,13 +319,20 @@ async function step($: EngineInterface, delta: number): Promise<void> {
   await show($, index)
 }
 
-// Claude started: pick up where the person left off, else show their folder.
+// Claude started: pick up where the person left off when the notes last
+// closed, in this session or an earlier one: the page they were on, or the
+// folder they were in; else their study folder. A download still running is
+// left to finish.
 async function resume($: EngineInterface): Promise<void> {
+  if (isLoading) return
   const mode = await read($, view)
   if (mode === 'read' && (await read($, doc)) !== null) return
   if (mode === 'browse' && (await read($, entries)).length > 0) return
 
-  const last = (await $.store.get('last')) as LastOpened | undefined
+  const place = (await $.store.get('place')) as Place | undefined
+  if (place?.view === 'browse') return browse($, place.trail)
+  // Before 0.4.0 only the last opened file was kept.
+  const last = place ?? ((await $.store.get('last')) as LastOpened | undefined)
   if (last !== undefined) return openDoc($, last.entry, last.trail)
 
   return browseRoot($)
@@ -395,6 +416,7 @@ export const register: Register = on => {
       if (folder === null) return { text: `No Google Drive folder named "${name}".` }
       await $.store.set('root', folder.title)
       await $.store.delete('last')
+      await $.store.delete('place')
       await update($, entries, () => [])
       await update($, doc, () => null)
       await update($, view, () => 'browse')

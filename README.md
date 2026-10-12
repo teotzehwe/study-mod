@@ -15,7 +15,7 @@ you prompt ──► Claude works ──► pane opens your notes at your bookma
 - **The page itself**, drawn as an image. Landscape 2-up handouts are split into left and right halves so they're readable in a sidebar.
 - **Notes** (any file not named like practice): "Read it, then look away and recall the key points." `Next ▶`.
 - **Practice** (titles with PTQ, PLQ, tutorial, quiz, worksheet, paper, TYS, exam…): "Work each question out on paper before you move on." `Wrote it ▶`.
-- Your place in every file is bookmarked. The next time Claude works, the last file reopens at that page.
+- Your place in every file is bookmarked. The next time Claude works, even in a new session, the notes reopen where they last closed: the same file at the same page, or the folder you were browsing.
 
 Keys while the pane has focus: `n` next, `p` previous, `f` files, `u` up a folder. `Esc` hands the keyboard back to the prompt; the pane stays until Claude is done.
 

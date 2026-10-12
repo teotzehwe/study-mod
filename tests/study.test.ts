@@ -61,15 +61,18 @@ const DESKTOP_DRIVE = '0f3c2a9e-5b1d-4c7a-9e2f-6d8b1a4c3e70'
 // rclone: not set up, set up, or set up but failing (its sign-in expired).
 type Rclone = 'none' | 'ok' | 'fails'
 
-function world(
-  on: On,
-  surfaces: readonly RenderSurface[] = ['desktop'],
-  drive: string | null = LOCAL_DRIVE,
-  rclone: Rclone = 'none',
-) {
+type World = {
+  surfaces?: readonly RenderSurface[]
+  drive?: string | null
+  rclone?: Rclone
+  // What the mod's store holds at the start: an earlier session's.
+  stored?: Readonly<Record<string, unknown>>
+}
+
+function world(on: On, { surfaces = ['desktop'], drive = LOCAL_DRIVE, rclone = 'none', stored = {} }: World = {}) {
   const seen: Seen = { opened: 0, closed: 0, toasts: [], downloads: [], renders: [], rclone: [] }
   const clock = mock.clock(on, { now: 1_000_000 })
-  mock.store(on)
+  mock.store(on, stored)
   // /home is a network automount on macOS; /Users is a plain folder everywhere.
   mock.env(on, { HOME: '/Users/ashton' })
 
@@ -218,7 +221,7 @@ test('the next wait resumes the same file at the bookmarked page', async ($, on)
 })
 
 test('the terminal draws the page as an image from a PNG', async ($, on) => {
-  const { clock } = world(on, ['terminal'])
+  const { clock } = world(on, { surfaces: ['terminal'] })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.settle()
@@ -259,7 +262,7 @@ test('/study while Claude works opens the notes on request', async ($, on) => {
 })
 
 test('with no Drive connector, the pane says how to connect one', async ($, on) => {
-  const { clock } = world(on, ['desktop'], null)
+  const { clock } = world(on, { drive: null })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.settle()
@@ -269,7 +272,7 @@ test('with no Drive connector, the pane says how to connect one', async ($, on) 
 })
 
 test('a desktop session names Drive by its id alone: the notes still open', async ($, on) => {
-  const { seen, clock } = world(on, ['desktop'], DESKTOP_DRIVE)
+  const { seen, clock } = world(on, { drive: DESKTOP_DRIVE })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.settle()
@@ -282,7 +285,7 @@ test('a desktop session names Drive by its id alone: the notes still open', asyn
 })
 
 test('with rclone set up, a PDF of any size comes by its id, not through the connector', async ($, on) => {
-  const { seen, clock } = world(on, ['desktop'], LOCAL_DRIVE, 'ok')
+  const { seen, clock } = world(on, { rclone: 'ok' })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.settle()
@@ -311,7 +314,7 @@ test('without rclone, a file over 10 MB says how to open it', async ($, on) => {
 })
 
 test('when rclone fails, a small file still comes through the connector', async ($, on) => {
-  const { seen, clock } = world(on, ['desktop'], LOCAL_DRIVE, 'fails')
+  const { seen, clock } = world(on, { rclone: 'fails' })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.settle()
@@ -325,7 +328,7 @@ test('when rclone fails, a small file still comes through the connector', async 
 })
 
 test('when rclone fails on a file over 10 MB, the pane says why', async ($, on) => {
-  const { clock } = world(on, ['desktop'], LOCAL_DRIVE, 'fails')
+  const { clock } = world(on, { rclone: 'fails' })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.settle()
@@ -333,5 +336,69 @@ test('when rclone fails on a file over 10 MB, the pane says why', async ($, on) 
   await ui.press({ key: 'entry:chem' })
   await ui.press({ key: 'entry:bonding' })
   expect(await ui.find({ type: 'Text', text: /rclone could not fetch it \(rclone: rclone failed: .*couldn't fetch token\)/ })).toBeDefined()
+  await ui.unmount()
+})
+
+const GN = { id: 'gn', title: 'GoodNotes' }
+const PHYS = { id: 'phys', title: 'H2 Physics' }
+const NOTES_ENTRY = {
+  id: 'notes',
+  title: '07 Oscillations Notes',
+  mimeType: 'application/pdf',
+  modifiedTime: '2026-08-25T08:35:36Z',
+  url: 'https://drive.google.com/file/d/notes/view',
+  isFolder: false,
+}
+
+test('a file that fails to open leaves the next wait in its folder, not the top', async ($, on) => {
+  const { clock } = world(on)
+
+  await $.turn.start({ text: 'one', turnId: 't1' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'entry:chem' })
+  await ui.press({ key: 'entry:bonding' })
+  await $.turn.complete(TURN_DONE)
+  await ui.unmount()
+
+  await $.turn.start({ text: 'two', turnId: 't2' })
+  await clock.settle()
+  const again = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await again.find({ type: 'Text', text: 'GoodNotes / H2 Chemistry' })).toBeDefined()
+  expect(await again.find({ key: 'entry:bonding' })).toBeDefined()
+  await again.unmount()
+})
+
+test('a new session reopens the folder the notes last closed on', async ($, on) => {
+  const { clock } = world(on, { stored: { place: { view: 'browse', trail: [GN, PHYS] } } })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'GoodNotes / H2 Physics' })).toBeDefined()
+  expect(await ui.find({ key: 'entry:notes' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a new session reopens the file and page the notes last closed on', async ($, on) => {
+  const { seen, clock } = world(on, {
+    stored: { place: { view: 'read', entry: NOTES_ENTRY, trail: [GN, PHYS] }, pages: { notes: 1 } },
+  })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(seen.downloads).toEqual(['notes'])
+  expect(await ui.find({ type: 'Text', text: /Page 2 of 2/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a store from before 0.4.0, with only the last file, still reopens it', async ($, on) => {
+  const { clock } = world(on, { stored: { last: { entry: NOTES_ENTRY, trail: [GN, PHYS] }, pages: { notes: 1 } } })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Page 2 of 2/ })).toBeDefined()
   await ui.unmount()
 })
